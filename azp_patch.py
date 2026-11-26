@@ -5,17 +5,19 @@
 import argparse, gzip, hashlib, json, os, shutil, struct, subprocess, sys, urllib.request, warnings, zipfile
 from pathlib import Path
 
-warnings.filterwarnings("ignore")
 import lz4.block
 import numpy as np
 import UnityPy
 from UnityPy.helpers import ArchiveStorageManager
 
+warnings.filterwarnings("ignore")
+
 ArchiveStorageManager.UNITY3D_SIGNATURE = b"#$manjuuunity*!@"
 UnityPy.config.FALLBACK_UNITY_VERSION = "2022.3.62f3"
 UnityPy.set_assetbundle_decrypt_key("z4l23bh5#35h&321")
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
+DEFAULT_GAME = Path(r"C:\YostarGames\AZUPRO_JP")
 PROCS = ("azurpromiliajp.exe", "azupro_jp_gamelauncher.exe")
 MMAP_MAGIC = b"\x01\x00\x00\x00\x10\x10\x00\x00"
 POOL_PATH = b"Assets/ResourcesAssets/Config/VString/vstring.bytes"
@@ -445,7 +447,7 @@ def cmd_fetch(a):
     d = json.load(get(CHANNEL, 30))["data"]
     if not d["url"].startswith(DATA_PREFIX) or not d["url"].endswith("/english-data.zip"):
         sys.exit("unexpected data URL: " + d["url"])
-    dest = Path(a.data or HERE / "data" / "english-data.zip")
+    dest = Path(a.data)
     if sha_file(dest) == d["sha256"]:
         print("Already up to date:", d["version"])
         return
@@ -458,15 +460,41 @@ def cmd_fetch(a):
     print("Saved", dest)
 
 
+def ask_game():
+    if (DEFAULT_GAME / "AzurPromiliaJP.exe").is_file():
+        return DEFAULT_GAME
+    return input("Game folder (the one with AzurPromiliaJP.exe): ").strip().strip('"')
+
+
+def interactive(a):
+    c = input("1) Install English  2) Restore Japanese\n> ").strip()
+    if c == "1":
+        a.game = ask_game()
+        cmd_fetch(a)
+        cmd_apply(a)
+    elif c == "2":
+        cmd_restore(a)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("command", choices=["check", "apply", "restore", "fetch"])
+    ap.add_argument("command", nargs="?", choices=["check", "apply", "restore", "fetch"])
     ap.add_argument("--game")
-    ap.add_argument("--data")
+    ap.add_argument("--data", default=HERE / "data" / "english-data.zip")
     ap.add_argument("--state", default=HERE / "state")
     a = ap.parse_args()
-    if a.command in ("check", "apply") and not (a.game and a.data):
-        ap.error("--game and --data are required")
+    if not a.command:
+        try:
+            interactive(a)
+        except SystemExit as e:
+            if e.code:
+                print(e.code)
+        except Exception as e:
+            print("Error:", e)
+        input("Press Enter to exit.")
+        return
+    if a.command in ("check", "apply") and not a.game:
+        a.game = ask_game()
     globals()["cmd_" + a.command](a)
 
 
